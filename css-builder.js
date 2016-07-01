@@ -39,7 +39,6 @@ exports.listAssets = function(loads, compileOpts, outputOpts) {
     };
   });
 };
-
 exports.bundle = function(loads, compileOpts, outputOpts) {
   var loader = this;
 
@@ -54,25 +53,40 @@ exports.bundle = function(loads, compileOpts, outputOpts) {
     var rootURL = loader.rootURL || fromFileURL(loader.baseURL);
 
     var cssOptimize = outputOpts.minify && outputOpts.cssOptimize !== false;
-    
+
     var outFile = loader.separateCSS ? outputOpts.outFile.replace(/\.js$/, '.css') : rootURL;
 
+    // cleanCSS writes to the target file and also rebases URLs relative to it
     var cleanCSS = new CleanCSS({
-      advanced: cssOptimize,
-      agressiveMerging: cssOptimize,
-      mediaMerging: cssOptimize,
-      restructuring: cssOptimize,
-      shorthandCompacting: cssOptimize,
+        advanced: cssOptimize,
+        agressiveMerging: cssOptimize,
+        mediaMerging: cssOptimize,
+        restructuring: cssOptimize,
+        shorthandCompacting: cssOptimize,
 
-      target: outFile,
-      relativeTo: rootURL,
-      sourceMap: !!outputOpts.sourceMaps,
-      sourceMapInlineSources: outputOpts.sourceMapContents
-    }).minify(loads.map(function(load) {
+        target: outFile,
+        relativeTo: rootURL,
+        sourceMap: !!outputOpts.sourceMaps,
+        sourceMapInlineSources: outputOpts.sourceMapContents
+      });
+
+    cleanCSS.minify(
+      loads.map(function(load) {
       return fromFileURL(load.address);
-    }));
 
-    if (cleanCSS.errors.length)
+    }), function(err, result) {
+
+      // Handle any errors
+      if (err && err.length)
+        throw new Error('CSS Plugin:\n' + err.join('\n'));
+
+      // Some files may be processed asyncronously, append them
+      if(result.styles && loader.separateCSS)
+        fs.appendFileSync(outFile, result.styles);
+
+    });
+
+    if (cleanCSS.errors && cleanCSS.errors.length)
       throw new Error('CSS Plugin:\n' + cleanCSS.errors.join('\n'));
 
     var cssOutput = cleanCSS.styles;
@@ -80,11 +94,10 @@ exports.bundle = function(loads, compileOpts, outputOpts) {
     // write a separate CSS file if necessary
     if (loader.separateCSS) {
       if (outputOpts.sourceMaps) {
-        fs.writeFileSync(outFile + '.map', cleanCSS.sourceMap.toString());
+        fs.appendFileSync(outFile + '.map', cleanCSS.sourceMap.toString());
         cssOutput += '/*# sourceMappingURL=' + outFile.split(/[\\/]/).pop() + '.map*/';
+        fs.appendFileSync(outFile, '/*# sourceMappingURL=' + outFile.split(/[\\/]/).pop() + '.map*/');
       }
-
-      fs.writeFileSync(outFile, cssOutput);
 
       return stubDefines;
     }
